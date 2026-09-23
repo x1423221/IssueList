@@ -1,25 +1,18 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { callApi } from './services/api'
+import liff from '@line/liff'
+import IssueForm from './components/IssueForm.vue'
 
-const user = ref(null)
-const error = ref('')
-
-onMounted(async () => {
-  try {
-    user.value = await callApi('ping')
-  } catch (e) {
-    error.value = e.message
-  }
-})
+// 直接從 ID Token 解出名稱，不必再呼叫一次後端
+const userName = liff.getDecodedIDToken()?.name || ''
 </script>
 
 <template>
   <main>
-    <h1>值班問題登打</h1>
-    <p v-if="error" class="error">{{ error }}</p>
-    <p v-else-if="user">驗證成功：{{ user.name }}（{{ user.userId }}）</p>
-    <p v-else>驗證中…</p>
+    <header>
+      <h1>值班問題登打</h1>
+      <p v-if="userName" class="user">{{ userName }}</p>
+    </header>
+    <IssueForm />
   </main>
 </template>
 
@@ -27,11 +20,23 @@ onMounted(async () => {
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif;
+  background: #f7f7f7;
 }
 main {
+  max-width: 640px;
+  margin: 0 auto;
   padding: 1.25rem;
 }
-.error {
-  color: #c62828;
+header {
+  margin-bottom: 1.25rem;
+}
+h1 {
+  font-size: 1.4rem;
+  margin: 0;
+}
+.user {
+  margin: 0.25rem 0 0;
+  color: #666;
+  font-size: 0.9rem;
 }
 </style>
