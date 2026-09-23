@@ -31,9 +31,9 @@ const tab = ref('form')
       >{{ t.label }}</button>
     </nav>
 
-    <!-- v-show 保留兩邊的狀態：切換分頁時，登打到一半的內容不會消失 -->
+    <!-- 兩邊都用 v-show：切換分頁時，登打到一半的內容和查詢結果都會保留 -->
     <IssueForm v-show="tab === 'form'" />
-    <IssueQuery v-if="tab === 'query'" />
+    <IssueQuery v-show="tab === 'query'" />
   </main>
 </template>
 

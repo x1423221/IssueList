@@ -1,17 +1,17 @@
-var LINE_CHANNEL_ID = "2011702473";
-var SPREADSHEET_ID = "貼上你的試算表ID";   // ← 換回你自己的試算表 ID
+// 設定值（LINE_CHANNEL_ID、SPREADSHEET_ID）放在 Config.gs
 
 const SHEET_ISSUES = 'Issues';
-const SHIFTS = ['D', 'E', 'N'];
 const CATEGORIES = ['系統', '設備', '網路', '其他'];
-const STATUSES = ['O', 'P', 'C'];
 const QUERY_LIMIT = 50;
 
 // 欄位位置（0 起算），對應 Issues 工作表第一列
+const HEADERS = [
+  'ISSUE_ID', 'DUTY_DATE', 'CATEGORY', 'TITLE', 'CONTENT',
+  'REPORTER_ID', 'REPORTER_NAME', 'CREATE_TIME', 'UPDATE_TIME'
+];
 const COL = {
-  ISSUE_ID: 0, DUTY_DATE: 1, SHIFT: 2, CATEGORY: 3, TITLE: 4, CONTENT: 5,
-  STATUS: 6, REPORTER_ID: 7, REPORTER_NAME: 8, RESOLUTION: 9,
-  CREATE_TIME: 10, UPDATE_TIME: 11
+  ISSUE_ID: 0, DUTY_DATE: 1, CATEGORY: 2, TITLE: 3, CONTENT: 4,
+  REPORTER_ID: 5, REPORTER_NAME: 6, CREATE_TIME: 7, UPDATE_TIME: 8
 };
 
 function doPost(e) {
@@ -25,7 +25,7 @@ function doPost(e) {
       case 'createIssue':
         return json({ ok: true, data: createIssue(req.data || {}, user) });
       case 'queryIssues':
-        return json({ ok: true, data: queryIssues(req.filter || {}, user) });
+        return json({ ok: true, data: queryIssues(req.filter || {}) });
       default:
         return json({ ok: false, error: '未知的 action：' + req.action });
     }
@@ -44,7 +44,6 @@ function getSheet() {
 function createIssue(data, user) {
   // 驗證輸入（前端的檢查可以被繞過，後端要再擋一次）
   if (!isDate(data.dutyDate)) throw new Error('值班日期格式錯誤');
-  if (!SHIFTS.includes(data.shift)) throw new Error('班別錯誤');
   if (!CATEGORIES.includes(data.category)) throw new Error('類別錯誤');
   const title = String(data.title || '').trim();
   if (!title) throw new Error('請填寫標題');
@@ -63,14 +62,11 @@ function createIssue(data, user) {
     const values = [
       issueId,
       data.dutyDate,
-      data.shift,
       data.category,
       safeText(title),
       safeText(content),
-      'O',                        // 待處理
       user.sub,
       safeText(user.name || ''),
-      '',                         // RESOLUTION
       new Date(),                 // CREATE_TIME
       ''                          // UPDATE_TIME
     ];
@@ -85,26 +81,34 @@ function createIssue(data, user) {
   }
 }
 
-// 只回傳「目前登入者自己」登打的資料，依編號由新到舊，最多 QUERY_LIMIT 筆
-function queryIssues(filter, user) {
+// 查詢所有同仁的紀錄，依編號由新到舊，最多 QUERY_LIMIT 筆
+function queryIssues(filter) {
   if (filter.dateFrom && !isDate(filter.dateFrom)) throw new Error('起始日期格式錯誤');
   if (filter.dateTo && !isDate(filter.dateTo)) throw new Error('結束日期格式錯誤');
-  if (filter.status && !STATUSES.includes(filter.status)) throw new Error('狀態錯誤');
   if (filter.category && !CATEGORIES.includes(filter.category)) throw new Error('類別錯誤');
+
+  // 關鍵字以空白分隔，每個字都要出現在標題或內容中（不分大小寫）
+  const keywords = String(filter.keyword || '')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
 
   const sheet = getSheet();
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return { items: [], total: 0 };
 
-  const rows = sheet.getRange(2, 1, lastRow - 1, 12).getValues();
+  const rows = sheet.getRange(2, 1, lastRow - 1, HEADERS.length).getValues();
 
   const matched = rows.filter(r => {
-    if (r[COL.REPORTER_ID] !== user.sub) return false;            // 只看自己的
     const d = toDateText(r[COL.DUTY_DATE]);
-    if (filter.dateFrom && d < filter.dateFrom) return false;       // yyyy-MM-dd 可直接比字串
+    if (filter.dateFrom && d < filter.dateFrom) return false;   // yyyy-MM-dd 可直接比字串
     if (filter.dateTo && d > filter.dateTo) return false;
-    if (filter.status && r[COL.STATUS] !== filter.status) return false;
     if (filter.category && r[COL.CATEGORY] !== filter.category) return false;
+    if (keywords.length) {
+      const text = (String(r[COL.TITLE]) + '\n' + String(r[COL.CONTENT])).toLowerCase();
+      if (!keywords.every(k => text.includes(k))) return false;
+    }
     return true;
   });
 
@@ -113,12 +117,10 @@ function queryIssues(filter, user) {
   const items = matched.slice(0, QUERY_LIMIT).map(r => ({
     issueId: Number(r[COL.ISSUE_ID]),
     dutyDate: toDateText(r[COL.DUTY_DATE]),
-    shift: r[COL.SHIFT],
     category: r[COL.CATEGORY],
     title: r[COL.TITLE],
     content: r[COL.CONTENT],
-    status: r[COL.STATUS],
-    resolution: r[COL.RESOLUTION],
+    reporterName: r[COL.REPORTER_NAME],
     createTime: formatTime(r[COL.CREATE_TIME]),
     updateTime: formatTime(r[COL.UPDATE_TIME])
   }));
@@ -148,10 +150,9 @@ function safeText(s) {
 function verifyIdToken(idToken) {
   if (!idToken) throw new Error('缺少 idToken');
 
-  const channelId = LINE_CHANNEL_ID;
   const res = UrlFetchApp.fetch('https://api.line.me/oauth2/v2.1/verify', {
     method: 'post',
-    payload: { id_token: idToken, client_id: channelId },
+    payload: { id_token: idToken, client_id: LINE_CHANNEL_ID },
     muteHttpExceptions: true
   });
 
@@ -168,12 +169,11 @@ function json(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// 只需執行一次：寫入 Issues 的欄位名稱
+// ⚠ 會清空 Issues 工作表的所有資料並重設編號，只在初始化或改欄位時手動執行
 function setupSheet() {
   const sheet = getSheet();
-  sheet.getRange(1, 1, 1, 12).setValues([[
-    'ISSUE_ID', 'DUTY_DATE', 'SHIFT', 'CATEGORY', 'TITLE', 'CONTENT',
-    'STATUS', 'REPORTER_ID', 'REPORTER_NAME', 'RESOLUTION', 'CREATE_TIME', 'UPDATE_TIME'
-  ]]);
+  sheet.clear();
+  sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
   sheet.setFrozenRows(1);
+  PropertiesService.getScriptProperties().deleteProperty('LAST_ISSUE_ID');
 }

@@ -1,11 +1,10 @@
 <script setup>
 import { reactive, ref } from 'vue'
 import { callApi } from '../services/api'
-import { SHIFTS, CATEGORIES, formatDate } from '../constants'
+import { CATEGORIES, formatDate } from '../constants'
 
 const form = reactive({
   dutyDate: formatDate(new Date()),
-  shift: 'D',
   category: CATEGORIES[0],
   title: '',
   content: ''
@@ -26,7 +25,7 @@ async function submit() {
   try {
     const result = await callApi('createIssue', { data: { ...form } })
     message.value = `已送出，編號 ${result.issueId}`
-    // 保留日期、班別、類別，方便同一班連續登打
+    // 保留日期、類別，方便連續登打
     form.title = ''
     form.content = ''
   } catch (e) {
@@ -39,27 +38,18 @@ async function submit() {
 
 <template>
   <form class="issue-form" @submit.prevent="submit">
-    <label class="field">
-      <span>值班日期</span>
-      <input type="date" v-model="form.dutyDate" required />
-    </label>
-
-    <fieldset class="field">
-      <legend>班別</legend>
-      <div class="segmented">
-        <label v-for="s in SHIFTS" :key="s.value" :class="{ active: form.shift === s.value }">
-          <input type="radio" :value="s.value" v-model="form.shift" />
-          {{ s.label }}
-        </label>
-      </div>
-    </fieldset>
-
-    <label class="field">
-      <span>類別</span>
-      <select v-model="form.category">
-        <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
-      </select>
-    </label>
+    <div class="row">
+      <label class="field">
+        <span>值班日期</span>
+        <input type="date" v-model="form.dutyDate" required />
+      </label>
+      <label class="field">
+        <span>類別</span>
+        <select v-model="form.category">
+          <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+        </select>
+      </label>
+    </div>
 
     <label class="field">
       <span>標題</span>
@@ -68,7 +58,7 @@ async function submit() {
 
     <label class="field">
       <span>內容</span>
-      <textarea v-model="form.content" rows="6" maxlength="2000"
+      <textarea v-model="form.content" rows="8" maxlength="2000"
         placeholder="發生時間、狀況、已做的處理"></textarea>
     </label>
 
@@ -89,19 +79,20 @@ async function submit() {
   flex-direction: column;
   gap: 1rem;
 }
+.row {
+  display: flex;
+  gap: 0.75rem;
+}
 .field {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  border: 0;
-  padding: 0;
-  margin: 0;
+  min-width: 0;
 }
-.field > span,
-legend {
+.field > span {
   font-size: 0.9rem;
   color: #555;
-  padding: 0;
 }
 input[type="date"],
 input[type="text"],
@@ -113,31 +104,10 @@ textarea {
   border: 1px solid #ccc;
   border-radius: 6px;
   background: #fff;
+  min-width: 0;
 }
 textarea {
   resize: vertical;
-}
-.segmented {
-  display: flex;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  overflow: hidden;
-}
-.segmented label {
-  flex: 1;
-  text-align: center;
-  padding: 0.6rem 0;
-  cursor: pointer;
-}
-.segmented label + label {
-  border-left: 1px solid #ccc;
-}
-.segmented label.active {
-  background: #06c755;       /* LINE 綠 */
-  color: #fff;
-}
-.segmented input {
-  display: none;
 }
 .hint {
   margin: 0;

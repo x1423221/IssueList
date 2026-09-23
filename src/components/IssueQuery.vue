@@ -1,12 +1,12 @@
 <script setup>
-import { reactive, ref, onMounted } from 'vue'
+import { reactive, ref } from 'vue'
 import { callApi } from '../services/api'
-import { CATEGORIES, STATUSES, shiftLabel, statusLabel, formatDate, daysAgo } from '../constants'
+import { CATEGORIES } from '../constants'
 
 const filter = reactive({
-  dateFrom: daysAgo(30),
-  dateTo: formatDate(new Date()),
-  status: '',
+  keyword: '',
+  dateFrom: '',
+  dateTo: '',
   category: ''
 })
 
@@ -38,72 +38,72 @@ async function search() {
   }
 }
 
+function clearFilter() {
+  Object.assign(filter, { keyword: '', dateFrom: '', dateTo: '', category: '' })
+}
+
 function toggle(id) {
   openId.value = openId.value === id ? null : id
 }
-
-onMounted(search)
 </script>
 
 <template>
   <section class="issue-query">
     <form class="filters" @submit.prevent="search">
+      <label class="field">
+        <span>關鍵字</span>
+        <input type="search" v-model="filter.keyword" placeholder="例如：印表機 3樓（多個字用空白分隔）" />
+      </label>
+
       <div class="row">
         <label class="field">
-          <span>起</span>
+          <span>日期起</span>
           <input type="date" v-model="filter.dateFrom" />
         </label>
         <label class="field">
-          <span>迄</span>
+          <span>日期迄</span>
           <input type="date" v-model="filter.dateTo" />
         </label>
       </div>
-      <div class="row">
-        <label class="field">
-          <span>狀態</span>
-          <select v-model="filter.status">
-            <option value="">全部</option>
-            <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>類別</span>
-          <select v-model="filter.category">
-            <option value="">全部</option>
-            <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
-          </select>
-        </label>
+
+      <label class="field">
+        <span>類別</span>
+        <select v-model="filter.category">
+          <option value="">全部</option>
+          <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+        </select>
+      </label>
+
+      <div class="actions">
+        <button type="button" class="secondary" @click="clearFilter">清除條件</button>
+        <button type="submit" class="primary" :disabled="loading">{{ loading ? '查詢中…' : '查詢' }}</button>
       </div>
-      <button type="submit" :disabled="loading">{{ loading ? '查詢中…' : '查詢' }}</button>
     </form>
 
     <p v-if="error" class="error">{{ error }}</p>
 
+    <p v-if="!searched && !error" class="empty">輸入條件後按「查詢」。不填任何條件會列出最近的紀錄。</p>
+
     <template v-if="searched && !error">
       <p class="summary">
-        共 {{ total }} 筆<span v-if="total > items.length">，顯示最近 {{ items.length }} 筆，可縮小日期範圍查看其他資料</span>
+        共 {{ total }} 筆<span v-if="total > items.length">，顯示最近 {{ items.length }} 筆，可加上關鍵字或日期縮小範圍</span>
       </p>
 
-      <p v-if="items.length === 0" class="empty">這段期間沒有你登打的問題。可以放寬日期或條件再查一次。</p>
+      <p v-if="items.length === 0" class="empty">找不到符合的紀錄。可以換個關鍵字或放寬條件再查一次。</p>
 
       <ul class="list">
         <li v-for="it in items" :key="it.issueId" :class="['item', { open: openId === it.issueId }]">
           <button type="button" class="item-head" @click="toggle(it.issueId)">
             <span class="meta">
-              #{{ it.issueId }}　{{ it.dutyDate }} {{ shiftLabel(it.shift) }}　{{ it.category }}
+              {{ it.dutyDate }}　{{ it.category }}　{{ it.reporterName }}
             </span>
-            <span :class="['status', 's-' + it.status]">{{ statusLabel(it.status) }}</span>
             <span class="title">{{ it.title }}</span>
           </button>
 
           <div v-if="openId === it.issueId" class="item-body">
             <p class="content">{{ it.content || '（未填寫內容）' }}</p>
-            <div v-if="it.resolution" class="resolution">
-              <span>處理結果</span>
-              <p>{{ it.resolution }}</p>
-            </div>
             <p class="time">
-              登打於 {{ it.createTime }}<span v-if="it.updateTime">，更新於 {{ it.updateTime }}</span>
+              #{{ it.issueId }}，登打於 {{ it.createTime }}<span v-if="it.updateTime">，更新於 {{ it.updateTime }}</span>
             </p>
           </div>
         </li>
@@ -117,7 +117,7 @@ onMounted(search)
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 .row {
   display: flex;
@@ -134,27 +134,42 @@ onMounted(search)
   font-size: 0.9rem;
   color: #555;
 }
+input[type="search"],
 input[type="date"],
 select {
   font: inherit;
-  font-size: 1rem;
+  font-size: 1rem;           /* 16px 以上，iOS 才不會自動放大畫面 */
   padding: 0.55rem 0.6rem;
   border: 1px solid #ccc;
   border-radius: 6px;
   background: #fff;
   min-width: 0;
 }
-.filters > button {
+.actions {
+  display: flex;
+  gap: 0.75rem;
+}
+.actions button {
   font: inherit;
   font-size: 1rem;
   padding: 0.7rem;
-  border: 0;
   border-radius: 6px;
+  cursor: pointer;
+}
+.primary {
+  flex: 2;
+  border: 0;
   background: #06c755;
   color: #fff;
 }
-.filters > button:disabled {
+.primary:disabled {
   opacity: 0.6;
+}
+.secondary {
+  flex: 1;
+  border: 1px solid #ccc;
+  background: #fff;
+  color: #444;
 }
 .error {
   color: #c62828;
@@ -178,9 +193,9 @@ select {
 }
 .item-head {
   width: 100%;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.25rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
   text-align: left;
   font: inherit;
   background: none;
@@ -194,41 +209,17 @@ select {
   color: #777;
 }
 .title {
-  grid-column: 1 / -1;
   font-size: 1rem;
 }
 .item.open .title {
   font-weight: 600;
 }
-.status {
-  font-size: 0.8rem;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  align-self: start;
-}
-.s-O { background: #fff3e0; color: #b45309; }
-.s-P { background: #e3f2fd; color: #1565c0; }
-.s-C { background: #e8f5e9; color: #2e7d32; }
 .item-body {
   padding: 0 0.1rem 1rem;
 }
 .content {
   white-space: pre-wrap;
   margin: 0 0 0.75rem;
-  line-height: 1.6;
-}
-.resolution {
-  border-left: 3px solid #06c755;
-  padding-left: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-.resolution span {
-  font-size: 0.85rem;
-  color: #555;
-}
-.resolution p {
-  white-space: pre-wrap;
-  margin: 0.25rem 0 0;
   line-height: 1.6;
 }
 .time {
