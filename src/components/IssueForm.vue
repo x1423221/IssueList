@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { callApi } from '../services/api'
 import { compressImage } from '../services/image'
 import { CATEGORIES, MAX_IMAGES, formatDate } from '../constants'
@@ -17,20 +17,26 @@ const message = ref('')
 const error = ref('')
 const fileInput = ref(null)
 
-async function onPickImages(event) {
-  error.value = ''
-  const files = Array.from(event.target.files || [])
-  event.target.value = ''   // 清空，讓同一張圖可以再選一次
+const formEl = ref(null)
 
+// 選檔和貼上共用：壓縮後加入清單
+async function addFiles(files) {
+  if (processing.value) return   // 上一批還在處理，避免超過張數上限
+  error.value = ''
+
+  const imageFiles = files.filter(f => f.type.startsWith('image/'))
   const room = MAX_IMAGES - images.value.length
-  if (files.length > room) {
+  if (room <= 0) {
+    error.value = `圖片最多 ${MAX_IMAGES} 張`
+    return
+  }
+  if (imageFiles.length > room) {
     error.value = `圖片最多 ${MAX_IMAGES} 張，這次只加入前 ${room} 張`
   }
 
   processing.value = true
   try {
-    for (const file of files.slice(0, room)) {
-      if (!file.type.startsWith('image/')) continue
+    for (const file of imageFiles.slice(0, room)) {
       images.value.push(await compressImage(file))
     }
   } catch (e) {
@@ -39,6 +45,35 @@ async function onPickImages(event) {
     processing.value = false
   }
 }
+
+function onPickImages(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''   // 清空，讓同一張圖可以再選一次
+  addFiles(files)
+}
+
+// 整個頁面都能貼上圖片，不需要先點某個欄位
+function onPaste(event) {
+  // 目前在「查詢」分頁時不處理，避免圖片被加到看不見的表單裡
+  if (!formEl.value || formEl.value.offsetParent === null) return
+
+  const items = Array.from(event.clipboardData?.items || [])
+  const files = items
+    .filter(it => it.kind === 'file' && it.type.startsWith('image/'))
+    .map(it => it.getAsFile())
+    .filter(Boolean)
+  if (!files.length) return   // 純文字貼上，照常處理
+
+  // 如果游標在文字欄位裡，而且剪貼簿也有文字（例如從網頁複製），讓文字照常貼上
+  const hasText = items.some(it => it.type === 'text/plain')
+  const inTextField = ['INPUT', 'TEXTAREA'].includes(event.target.tagName)
+  if (!(hasText && inTextField)) event.preventDefault()
+
+  addFiles(files)
+}
+
+onMounted(() => document.addEventListener('paste', onPaste))
+onUnmounted(() => document.removeEventListener('paste', onPaste))
 
 function removeImage(index) {
   images.value.splice(index, 1)
@@ -74,7 +109,7 @@ async function submit() {
 </script>
 
 <template>
-  <form class="issue-form" @submit.prevent="submit">
+  <form ref="formEl" class="issue-form" @submit.prevent="submit">
     <div class="row">
       <label class="field">
         <span>值班日期</span>
@@ -100,7 +135,7 @@ async function submit() {
     </label>
 
     <div class="field">
-      <span>圖片（{{ images.length }} / {{ MAX_IMAGES }}）</span>
+      <span>圖片（{{ images.length }} / {{ MAX_IMAGES }}）<small class="paste-tip">電腦上可直接按 Ctrl+V 貼上截圖</small></span>
       <div class="thumbs">
         <div v-for="(img, i) in images" :key="i" class="thumb">
           <img :src="img.dataUrl" alt="" />
@@ -211,6 +246,10 @@ textarea {
 }
 .add:disabled {
   opacity: 0.6;
+}
+.paste-tip {
+  margin-left: 0.5rem;
+  color: #999;
 }
 .hint {
   margin: 0;
