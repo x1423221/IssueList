@@ -1,24 +1,12 @@
 <script setup>
 import { reactive, ref } from 'vue'
 import { callApi } from '../services/api'
-
-const SHIFTS = [
-  { value: 'D', label: '白班' },
-  { value: 'E', label: '小夜' },
-  { value: 'N', label: '大夜' }
-]
-const CATEGORIES = ['系統', '設備', '網路', '其他']
-
-function today() {
-  const d = new Date()
-  const pad = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
+import { SHIFTS, CATEGORIES, formatDate } from '../constants'
 
 const form = reactive({
-  dutyDate: today(),
+  dutyDate: formatDate(new Date()),
   shift: 'D',
-  category: '系統',
+  category: CATEGORIES[0],
   title: '',
   content: ''
 })
