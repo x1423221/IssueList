@@ -1,7 +1,8 @@
 <script setup>
 import { reactive, ref } from 'vue'
 import { callApi } from '../services/api'
-import { CATEGORIES, formatDate } from '../constants'
+import { compressImage } from '../services/image'
+import { CATEGORIES, MAX_IMAGES, formatDate } from '../constants'
 
 const form = reactive({
   dutyDate: formatDate(new Date()),
@@ -9,9 +10,39 @@ const form = reactive({
   title: '',
   content: ''
 })
+const images = ref([])          // [{ dataUrl, base64 }]
+const processing = ref(false)   // 正在壓縮圖片
 const submitting = ref(false)
 const message = ref('')
 const error = ref('')
+const fileInput = ref(null)
+
+async function onPickImages(event) {
+  error.value = ''
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''   // 清空，讓同一張圖可以再選一次
+
+  const room = MAX_IMAGES - images.value.length
+  if (files.length > room) {
+    error.value = `圖片最多 ${MAX_IMAGES} 張，這次只加入前 ${room} 張`
+  }
+
+  processing.value = true
+  try {
+    for (const file of files.slice(0, room)) {
+      if (!file.type.startsWith('image/')) continue
+      images.value.push(await compressImage(file))
+    }
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    processing.value = false
+  }
+}
+
+function removeImage(index) {
+  images.value.splice(index, 1)
+}
 
 async function submit() {
   error.value = ''
@@ -23,11 +54,17 @@ async function submit() {
 
   submitting.value = true
   try {
-    const result = await callApi('createIssue', { data: { ...form } })
+    const result = await callApi('createIssue', {
+      data: {
+        ...form,
+        images: images.value.map(img => ({ data: img.base64 }))
+      }
+    })
     message.value = `已送出，編號 ${result.issueId}`
     // 保留日期、類別，方便連續登打
     form.title = ''
     form.content = ''
+    images.value = []
   } catch (e) {
     error.value = '送出失敗：' + e.message
   } finally {
@@ -62,13 +99,34 @@ async function submit() {
         placeholder="發生時間、狀況、已做的處理"></textarea>
     </label>
 
-    <p class="hint">請勿輸入病歷號、病患姓名等個資。</p>
+    <div class="field">
+      <span>圖片（{{ images.length }} / {{ MAX_IMAGES }}）</span>
+      <div class="thumbs">
+        <div v-for="(img, i) in images" :key="i" class="thumb">
+          <img :src="img.dataUrl" alt="" />
+          <button type="button" class="remove" @click="removeImage(i)" aria-label="移除這張圖片">×</button>
+        </div>
+        <button
+          v-if="images.length < MAX_IMAGES"
+          type="button"
+          class="add"
+          :disabled="processing || submitting"
+          @click="fileInput.click()"
+        >{{ processing ? '處理中…' : '+ 加入圖片' }}</button>
+      </div>
+      <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onPickImages" />
+    </div>
+
+    <p class="hint">請勿輸入或拍攝病歷號、病患姓名等個資。</p>
 
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="message" class="success">{{ message }}</p>
 
-    <button type="submit" :disabled="submitting">
-      {{ submitting ? '送出中…' : '送出' }}
+    <button type="submit" class="submit" :disabled="submitting || processing">
+      <template v-if="submitting">
+        送出中…<span v-if="images.length">（含 {{ images.length }} 張圖片）</span>
+      </template>
+      <template v-else>送出</template>
     </button>
   </form>
 </template>
@@ -109,6 +167,51 @@ textarea {
 textarea {
   resize: vertical;
 }
+.thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 0.5rem;
+}
+.thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #eee;
+}
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.add {
+  aspect-ratio: 1;
+  font: inherit;
+  font-size: 0.9rem;
+  border: 1px dashed #aaa;
+  border-radius: 6px;
+  background: #fff;
+  color: #555;
+  cursor: pointer;
+}
+.add:disabled {
+  opacity: 0.6;
+}
 .hint {
   margin: 0;
   font-size: 0.85rem;
@@ -122,7 +225,7 @@ textarea {
   margin: 0;
   color: #2e7d32;
 }
-button {
+.submit {
   font: inherit;
   font-size: 1rem;
   padding: 0.8rem;
@@ -131,7 +234,7 @@ button {
   background: #06c755;
   color: #fff;
 }
-button:disabled {
+.submit:disabled {
   opacity: 0.6;
 }
 </style>

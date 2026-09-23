@@ -1,7 +1,8 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { reactive, ref, nextTick } from 'vue'
 import { callApi } from '../services/api'
 import { CATEGORIES } from '../constants'
+import IssueDetail from './IssueDetail.vue'
 
 const filter = reactive({
   keyword: '',
@@ -15,7 +16,9 @@ const total = ref(0)
 const loading = ref(false)
 const searched = ref(false)
 const error = ref('')
-const openId = ref(null)   // 目前展開的那一筆
+
+const detailId = ref(null)   // 目前開啟詳細頁的編號
+let listScrollY = 0          // 回到列表時還原捲動位置
 
 async function search() {
   error.value = ''
@@ -29,7 +32,6 @@ async function search() {
     const result = await callApi('queryIssues', { filter: { ...filter } })
     items.value = result.items
     total.value = result.total
-    openId.value = null
     searched.value = true
   } catch (e) {
     error.value = '查詢失敗：' + e.message
@@ -42,73 +44,86 @@ function clearFilter() {
   Object.assign(filter, { keyword: '', dateFrom: '', dateTo: '', category: '' })
 }
 
-function toggle(id) {
-  openId.value = openId.value === id ? null : id
+function openDetail(id) {
+  listScrollY = window.scrollY
+  detailId.value = id
+  window.scrollTo(0, 0)
+}
+
+async function closeDetail() {
+  detailId.value = null
+  await nextTick()
+  window.scrollTo(0, listScrollY)
 }
 </script>
 
 <template>
   <section class="issue-query">
-    <form class="filters" @submit.prevent="search">
-      <label class="field">
-        <span>關鍵字</span>
-        <input type="search" v-model="filter.keyword" placeholder="例如：印表機 3樓（多個字用空白分隔）" />
-      </label>
-
-      <div class="row">
+    <!-- 列表用 v-show，開詳細頁時保留查詢條件和結果 -->
+    <div v-show="detailId === null">
+      <form class="filters" @submit.prevent="search">
         <label class="field">
-          <span>日期起</span>
-          <input type="date" v-model="filter.dateFrom" />
+          <span>關鍵字</span>
+          <input type="search" v-model="filter.keyword" placeholder="例如：印表機 3樓（多個字用空白分隔）" />
         </label>
+
+        <div class="row">
+          <label class="field">
+            <span>日期起</span>
+            <input type="date" v-model="filter.dateFrom" />
+          </label>
+          <label class="field">
+            <span>日期迄</span>
+            <input type="date" v-model="filter.dateTo" />
+          </label>
+        </div>
+
         <label class="field">
-          <span>日期迄</span>
-          <input type="date" v-model="filter.dateTo" />
+          <span>類別</span>
+          <select v-model="filter.category">
+            <option value="">全部</option>
+            <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+          </select>
         </label>
-      </div>
 
-      <label class="field">
-        <span>類別</span>
-        <select v-model="filter.category">
-          <option value="">全部</option>
-          <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
-        </select>
-      </label>
+        <div class="actions">
+          <button type="button" class="secondary" @click="clearFilter">清除條件</button>
+          <button type="submit" class="primary" :disabled="loading">{{ loading ? '查詢中…' : '查詢' }}</button>
+        </div>
+      </form>
 
-      <div class="actions">
-        <button type="button" class="secondary" @click="clearFilter">清除條件</button>
-        <button type="submit" class="primary" :disabled="loading">{{ loading ? '查詢中…' : '查詢' }}</button>
-      </div>
-    </form>
+      <p v-if="error" class="error">{{ error }}</p>
 
-    <p v-if="error" class="error">{{ error }}</p>
+      <p v-if="!searched && !error" class="empty">輸入條件後按「查詢」。不填任何條件會列出最近的紀錄。</p>
 
-    <p v-if="!searched && !error" class="empty">輸入條件後按「查詢」。不填任何條件會列出最近的紀錄。</p>
+      <template v-if="searched && !error">
+        <p class="summary">
+          共 {{ total }} 筆<span v-if="total > items.length">，顯示最近 {{ items.length }} 筆，可加上關鍵字或日期縮小範圍</span>
+        </p>
 
-    <template v-if="searched && !error">
-      <p class="summary">
-        共 {{ total }} 筆<span v-if="total > items.length">，顯示最近 {{ items.length }} 筆，可加上關鍵字或日期縮小範圍</span>
-      </p>
+        <p v-if="items.length === 0" class="empty">找不到符合的紀錄。可以換個關鍵字或放寬條件再查一次。</p>
 
-      <p v-if="items.length === 0" class="empty">找不到符合的紀錄。可以換個關鍵字或放寬條件再查一次。</p>
+        <ul class="list">
+          <li v-for="it in items" :key="it.issueId">
+            <button type="button" class="item" @click="openDetail(it.issueId)">
+              <span class="meta">
+                {{ it.dutyDate }}　{{ it.category }}　{{ it.reporterName }}
+                <span v-if="it.imageCount" class="img-count">圖 {{ it.imageCount }}</span>
+              </span>
+              <span class="title">{{ it.title }}</span>
+              <span v-if="it.snippet" class="snippet">{{ it.snippet }}</span>
+            </button>
+          </li>
+        </ul>
+      </template>
+    </div>
 
-      <ul class="list">
-        <li v-for="it in items" :key="it.issueId" :class="['item', { open: openId === it.issueId }]">
-          <button type="button" class="item-head" @click="toggle(it.issueId)">
-            <span class="meta">
-              {{ it.dutyDate }}　{{ it.category }}　{{ it.reporterName }}
-            </span>
-            <span class="title">{{ it.title }}</span>
-          </button>
-
-          <div v-if="openId === it.issueId" class="item-body">
-            <p class="content">{{ it.content || '（未填寫內容）' }}</p>
-            <p class="time">
-              #{{ it.issueId }}，登打於 {{ it.createTime }}<span v-if="it.updateTime">，更新於 {{ it.updateTime }}</span>
-            </p>
-          </div>
-        </li>
-      </ul>
-    </template>
+    <IssueDetail
+      v-if="detailId !== null"
+      :key="detailId"
+      :issue-id="detailId"
+      @back="closeDetail"
+    />
   </section>
 </template>
 
@@ -188,10 +203,10 @@ select {
   padding: 0;
   border-top: 1px solid #ddd;
 }
-.item {
+.list li {
   border-bottom: 1px solid #ddd;
 }
-.item-head {
+.item {
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -208,23 +223,21 @@ select {
   font-size: 0.85rem;
   color: #777;
 }
+.img-count {
+  margin-left: 0.5rem;
+  padding: 0 0.4rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
 .title {
   font-size: 1rem;
 }
-.item.open .title {
-  font-weight: 600;
-}
-.item-body {
-  padding: 0 0.1rem 1rem;
-}
-.content {
-  white-space: pre-wrap;
-  margin: 0 0 0.75rem;
-  line-height: 1.6;
-}
-.time {
-  font-size: 0.8rem;
-  color: #888;
-  margin: 0;
+.snippet {
+  font-size: 0.85rem;
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
